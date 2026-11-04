@@ -1,0 +1,37 @@
+# Fuel – Calorie Tracker
+
+A web app you install on your iPhone's home screen. No build step: plain HTML/CSS/JS.
+All data is stored on the device (IndexedDB).
+
+## Files
+| File | Purpose |
+|---|---|
+| `index.html` | Page layout and dialogs |
+| `app.js` | App logic: goals, logging, progress bars |
+| `db.js` | On-device storage (goals history, foods, log entries) |
+| `styles.css` | Styling (follows iPhone light/dark mode) |
+| `sw.js` | Offline support. **Bump `VERSION` whenever you change app files.** |
+| `manifest.webmanifest`, `icons/` | Home-screen app name and icon |
+| `tools/serve.ps1` | Local preview server |
+| `tools/make-icons.ps1` | Regenerates icons |
+
+## Preview on your PC
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\serve.ps1
+```
+Then open http://localhost:8080 in Chrome.
+
+## Put it on your iPhone
+The app has to be hosted on an HTTPS site (free with GitHub Pages):
+1. Create a GitHub repo and upload these files.
+2. Repo → Settings → Pages → deploy from the `main` branch.
+3. On your iPhone, open the Pages URL in **Safari** → Share → **Add to Home Screen**.
+
+Always open it from the home-screen icon. iOS protects home-screen apps' data
+from being auto-cleared, but not data from sites opened in a regular Safari tab.
+
+## Roadmap
+- [x] Phase 1 – goals, manual logging, progress bars, installable/offline
+- [ ] Phase 2 – streak, favorites & recent, history
+- [ ] Phase 3 – Traditions at Scott & Morrill menus via Nutrislice (nightly GitHub Action)
+- [ ] Phase 4 – barcode scanner, weight tracking, charts

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fuel">
+  <title>Fuel</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Today</h1>
+      <p id="dateLabel" class="muted"></p>
+    </div>
+    <button id="settingsBtn" class="icon-btn" aria-label="Goals">⚙︎</button>
+  </header>
+
+  <main>
+    <section id="bars" class="card bars" aria-label="Daily progress"></section>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Logged</h2>
+        <span id="entryCount" class="muted"></span>
+      </div>
+      <ul id="entries" class="entries"></ul>
+      <p id="emptyState" class="muted empty">Nothing logged yet today.</p>
+    </section>
+  </main>
+
+  <button id="addBtn" class="fab">+ Add food</button>
+
+  <!-- Goals dialog -->
+  <dialog id="goalsDialog">
+    <form id="goalsForm" method="dialog">
+      <h2>Daily goals</h2>
+      <p id="goalsIntro" class="muted" hidden>Set your daily targets to get started.</p>
+      <label>Calories <input name="calories" type="number" inputmode="numeric" min="1" step="1" required></label>
+      <label>Protein (g) <input name="protein" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <label>Carbs (g) <input name="carbs" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <label>Fat (g) <input name="fat" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <div class="actions">
+        <button type="button" class="secondary" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add / edit food dialog -->
+  <dialog id="foodDialog">
+    <form id="foodForm" method="dialog">
+      <h2 id="foodTitle">Add food</h2>
+      <label>Name <input name="name" type="text" autocomplete="off" required maxlength="80"></label>
+      <label><span>Serving size <span class="muted">(optional)</span></span>
+        <input name="serving" type="text" autocomplete="off" placeholder="e.g. 4 oz, 1 cup" maxlength="40"></label>
+      <p class="muted small">Nutrition per serving</p>
+      <div class="grid2">
+        <label>Calories <input name="calories" type="number" inputmode="decimal" min="0" step="any" required></label>
+        <label>Protein (g) <input name="protein" type="number" inputmode="decimal" min="0" step="any" value="0"></label>
+        <label>Carbs (g) <input name="carbs" type="number" inputmode="decimal" min="0" step="any" value="0"></label>
+        <label>Fat (g) <input name="fat" type="number" inputmode="decimal" min="0" step="any" value="0"></label>
+      </div>
+      <label>Servings <input name="servings" type="number" inputmode="decimal" min="0.1" step="any" value="1" required></label>
+      <p id="foodTotal" class="total"></p>
+      <label class="check" id="saveFoodRow"><input name="saveFood" type="checkbox" checked> Save to my foods</label>
+      <div class="actions">
+        <button type="button" class="danger" id="deleteEntryBtn" hidden>Delete</button>
+        <button type="button" class="secondary" data-close>Cancel</button>
+        <button type="submit" class="primary" id="foodSubmit">Log it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
