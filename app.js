@@ -1,9 +1,10 @@
 // Bump ?v= here, in index.html, and VERSION in sw.js on every release.
-import * as db from './db.js?v=4';
+import * as db from './db.js?v=5';
 import {
   MACRO_KEYS, dateKey, parseKey, addDays, entryTotals, sumTotals,
   goalsFor, summarizeDays, currentStreak, bestStreak,
-} from './stats.js?v=4';
+} from './stats.js?v=5';
+import { barChart, lineChart } from './charts.js?v=5';
 
 const MACROS = [
   { key: 'calories', label: 'Calories', unit: '' },
@@ -32,6 +33,11 @@ const state = {
   panel: 'manual',    // visible Add food panel
   diningHall: storedHall(),
   diningMeal: null,
+  pendingBarcode: null, // barcode to attach when a scanned food is saved
+  trendRange: 7,
+  weights: [],
+  weightRange: '30',
+  overlay: false,
 };
 
 // ---------- dining menus (published nightly to data/menus/YYYY-MM-DD.json) ----------
@@ -98,7 +104,8 @@ function resetTwoTap(btn, label) { btn.dataset.armed = ''; btn.textContent = lab
 // ---------- render ----------
 async function render() {
   state.today = dateKey(new Date());
-  [state.entries, state.goalsHistory] = await Promise.all([db.getAllEntries(), db.getGoalsHistory()]);
+  [state.entries, state.goalsHistory, state.weights] =
+    await Promise.all([db.getAllEntries(), db.getGoalsHistory(), db.getAllWeights()]);
   state.days = summarizeDays(state.entries, state.goalsHistory);
 
   const streak = currentStreak(state.days, state.today);
@@ -109,11 +116,14 @@ async function render() {
 
   $('#dayView').hidden = state.tab !== 'day';
   $('#historyView').hidden = state.tab !== 'history';
+  $('#weightView').hidden = state.tab !== 'weight';
   $('#addBtn').hidden = state.tab !== 'day';
   document.querySelectorAll('.tabbar button').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === state.tab));
 
-  if (state.tab === 'day') renderDay(); else renderHistory(streak);
+  if (state.tab === 'day') renderDay();
+  else if (state.tab === 'history') renderHistory(streak);
+  else renderWeight();
 }
 
 function renderDay() {
@@ -238,7 +248,138 @@ function renderHistory(streak) {
   $('#statCurrent').textContent = streak;
   $('#statBest').textContent = bestStreak(days);
   $('#statMonth').textContent = monthHits;
+  renderTrends();
 }
+
+// ---------- trends (History tab) ----------
+function renderTrends() {
+  const n = state.trendRange;
+  document.querySelectorAll('#trendSeg button').forEach(b =>
+    b.classList.toggle('active', Number(b.dataset.range) === n));
+
+  const bars = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const date = addDays(state.today, -i);
+    const info = state.days[date];
+    bars.push({
+      date,
+      value: info ? info.totals.calories : 0,
+      cls: !info ? 'none' : info.hit ? 'hit' : date === state.today ? 'today' : 'miss',
+    });
+  }
+  const goals = goalsFor(state.today, state.goalsHistory);
+  barChart($('#calChart'), { bars, goal: goals?.calories, label: `Daily calories, last ${n} days` });
+
+  // Averages over finished days you logged (today is excluded since it isn't over).
+  const logged = bars.filter(b => b.date !== state.today && state.days[b.date]).map(b => state.days[b.date].totals);
+  const grid = $('#avgGrid');
+  grid.replaceChildren();
+  if (!logged.length) {
+    grid.append(emptyMsg('Log a full day to see your averages.'));
+    return;
+  }
+  for (const m of MACROS) {
+    const avg = logged.reduce((s, t) => s + t[m.key], 0) / logged.length;
+    const goal = goals?.[m.key] || 0;
+    const cell = document.createElement('div');
+    cell.innerHTML = '<span class="muted"></span><strong></strong><span class="pct"></span>';
+    cell.children[0].textContent = m.label;
+    cell.children[1].textContent = Math.round(avg).toLocaleString() + m.unit;
+    const pct = goal ? Math.round((avg / goal) * 100) : null;
+    cell.children[2].textContent = pct == null ? '' : `${pct}% of goal`;
+    cell.children[2].className = 'pct ' + (pct == null ? '' : status(m.key, avg, goal, goals?.tolerancePct ?? 10));
+    grid.append(cell);
+  }
+}
+
+// ---------- weight ----------
+const weightForm = $('#weightForm');
+
+function caloriesSeries(start, end) {
+  const out = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) out.push({ date: d, value: state.days[d]?.totals.calories || 0 });
+  return out;
+}
+
+function renderWeight() {
+  $('#title').textContent = 'Weight';
+  $('#dateLabel').textContent = 'Track your weigh-ins';
+  weightForm.elements.date.max = state.today;
+  if (!weightForm.elements.date.value) weightForm.elements.date.value = state.today;
+
+  const ws = state.weights;
+  const range = state.weightRange;
+  document.querySelectorAll('#weightSeg button').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  $('#overlayToggle').checked = state.overlay;
+
+  const start = range === 'all' ? (ws[0]?.date || state.today) : addDays(state.today, -(Number(range) - 1));
+  const inRange = ws.filter(w => w.date >= start && w.date <= state.today);
+
+  $('#wCurrent').textContent = ws.length ? ws[ws.length - 1].weight : '–';
+  $('#wCount').textContent = ws.length;
+  $('#wChangeLabel').textContent = `Change (${range === 'all' ? 'all time' : range + ' days'})`;
+  const ch = $('#wChange');
+  if (inRange.length >= 2) {
+    const diff = Math.round((inRange[inRange.length - 1].weight - inRange[0].weight) * 10) / 10;
+    ch.textContent = (diff > 0 ? '+' : '') + diff;
+  } else {
+    ch.textContent = '–';
+  }
+
+  const host = $('#weightChart');
+  if (inRange.length) {
+    lineChart(host, {
+      points: inRange, start, end: state.today,
+      overlay: state.overlay ? caloriesSeries(start, state.today) : null,
+      label: 'Weight trend',
+    });
+  } else {
+    host.replaceChildren(emptyMsg(ws.length ? 'No weigh-ins in this range.' : 'Your weight trend will show here.'));
+  }
+
+  const list = $('#weightList');
+  list.replaceChildren();
+  $('#weightEmpty').hidden = ws.length > 0;
+  for (const w of [...ws].reverse().slice(0, 60)) {
+    const li = document.createElement('li');
+    li.className = 'weight-row';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'entry';
+    btn.innerHTML = '<div class="entry-main"><span class="entry-name"></span><span class="entry-cal"></span></div>';
+    btn.querySelector('.entry-name').textContent =
+      parseKey(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    btn.querySelector('.entry-cal').textContent = `${w.weight} lb`;
+    btn.addEventListener('click', () => {
+      weightForm.elements.date.value = w.date;
+      weightForm.elements.weight.value = w.weight;
+      weightForm.elements.weight.focus();
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'danger small-btn';
+    del.textContent = 'Delete';
+    twoTap(del, 'Delete', async () => { await db.deleteWeight(w.date); render(); });
+    li.append(btn, del);
+    list.append(li);
+  }
+}
+
+weightForm.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = weightForm.elements;
+  const w = Math.round(num(f.weight.value) * 10) / 10;
+  if (!f.date.value || !w) return;
+  await db.saveWeight(f.date.value > state.today ? state.today : f.date.value, w);
+  f.weight.value = '';
+  f.weight.blur();
+  render();
+});
+document.querySelectorAll('#weightSeg button').forEach(b =>
+  b.addEventListener('click', () => { state.weightRange = b.dataset.range; render(); }));
+$('#overlayToggle').addEventListener('change', e => { state.overlay = e.target.checked; render(); });
+document.querySelectorAll('#trendSeg button').forEach(b =>
+  b.addEventListener('click', () => { state.trendRange = Number(b.dataset.range); render(); }));
 
 // ---------- goals ----------
 function openGoals(firstRun = false) {
@@ -270,6 +411,8 @@ function showPanel(name) {
   state.panel = name;
   $('#diningPanel').hidden = name !== 'dining';
   $('#pickPanel').hidden = name !== 'pick';
+  $('#scanPanel').hidden = name !== 'scan';
+  if (name === 'scan') startScanner(); else stopScanner();
   foodForm.hidden = name !== 'manual';
   document.querySelectorAll('#foodTabs button').forEach(b =>
     b.classList.toggle('active', b.dataset.panel === name));
@@ -293,6 +436,7 @@ function setFormMode({ editing = false, fromSaved = false } = {}) {
   $('#forgetFoodBtn').hidden = editing || !fromSaved;
   $('#saveFoodRow').hidden = editing || fromSaved;
   $('#foodNote').hidden = true;
+  state.pendingBarcode = null;
   resetTwoTap($('#deleteEntryBtn'), 'Delete');
   resetTwoTap($('#forgetFoodBtn'), 'Remove from my foods');
 }
@@ -399,6 +543,150 @@ async function renderDining() {
   }
   if (!shown) list.append(emptyMsg('No matches on this menu.'));
 }
+
+// ---------- barcode scanning ----------
+// html5-qrcode reads UPC/EAN barcodes from the camera. It's only downloaded the
+// first time you open the Scan tab.
+const SCANNER_SRC = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+let scanLib = null;
+let scanner = null;
+let scanStarting = null;
+let scanBusy = false;
+
+function setScanStatus(msg) { $('#scanStatus').textContent = msg; }
+
+function loadScanLib() {
+  if (!scanLib) {
+    scanLib = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = SCANNER_SRC;
+      s.onload = () => resolve(window.__Html5QrcodeLibrary__ || window);
+      s.onerror = () => { scanLib = null; s.remove(); reject(new Error('load')); };
+      document.head.append(s);
+    });
+  }
+  return scanLib;
+}
+
+async function startScanner() {
+  // Fresh screen every time the Scan tab opens.
+  $('#barcodeInput').value = '';
+  if (scanner) { setScanStatus('Point the camera at a barcode'); return; }
+  setScanStatus('Starting camera… (tap Allow if your phone asks)');
+  if (scanStarting) return; // still waiting on the camera permission prompt
+  scanStarting = (async () => {
+    let inst = null;
+    try {
+      const lib = await loadScanLib();
+      const F = lib.Html5QrcodeSupportedFormats;
+      inst = new lib.Html5Qrcode('scanRegion', {
+        verbose: false,
+        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      });
+      await inst.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: (w, h) => ({ width: Math.floor(Math.min(w * 0.85, 300)), height: Math.floor(Math.min(h * 0.55, 150)) }) },
+        code => onBarcode(code),
+        () => {},
+      );
+      scanner = inst;
+      if (state.panel !== 'scan' || !foodDialog.open) await stopScanner(); // user left while starting
+      else setScanStatus('Point the camera at a barcode');
+    } catch (e) {
+      try { inst?.clear(); } catch {}
+      const msg = String(e?.message || e);
+      setScanStatus(
+        msg === 'load' ? 'Couldn’t load the scanner. Check your internet, or type the number below.'
+        : /NotAllowed|Permission/i.test(msg) ? 'Camera access is off. Allow it in Settings → Safari → Camera, or type the number below.'
+        : 'Camera isn’t available. Type the barcode number below.');
+    } finally {
+      scanStarting = null;
+    }
+  })();
+}
+
+async function stopScanner() {
+  if (scanStarting) await scanStarting;
+  const s = scanner;
+  scanner = null;
+  if (!s) return;
+  try { if (s.isScanning) await s.stop(); s.clear(); } catch {}
+}
+
+async function onBarcode(code) {
+  if (scanBusy) return;
+  scanBusy = true;
+  try {
+    await stopScanner();
+    await lookupBarcode(code);
+  } finally {
+    scanBusy = false;
+  }
+}
+
+function offToFood(p) {
+  const n = p.nutriments || {};
+  const brand = (p.brands || '').split(',')[0].trim();
+  const name = [p.product_name?.trim(), brand && `(${brand})`].filter(Boolean).join(' ') || 'Scanned food';
+  const kcal = (suffix) => n[`energy-kcal${suffix}`] ?? (n[`energy${suffix}`] != null && n.energy_unit !== 'kcal' ? n[`energy${suffix}`] / 4.184 : n[`energy${suffix}`]);
+  const pick = suffix => ({
+    calories: Math.round(num(kcal(suffix))),
+    protein: Math.round(num(n[`proteins${suffix}`]) * 10) / 10,
+    carbs: Math.round(num(n[`carbohydrates${suffix}`]) * 10) / 10,
+    fat: Math.round(num(n[`fat${suffix}`]) * 10) / 10,
+  });
+  if (kcal('_serving') != null) return { name, serving: p.serving_size || '1 serving', per: pick('_serving') };
+  if (kcal('_100g') != null) return { name, serving: '100 g', per: pick('_100g'), per100: true };
+  return { name, serving: p.serving_size || '', per: null };
+}
+
+async function lookupBarcode(raw) {
+  const code = String(raw).replace(/\D/g, '');
+  if (code.length < 6) { setScanStatus('That doesn’t look like a barcode number.'); return; }
+  setScanStatus(`Looking up ${code}…`);
+
+  const saved = await db.findFoodByBarcode(code);
+  if (saved) { pickFood(saved); return; }
+
+  let product = null, failed = false;
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,serving_size,nutriments`);
+    if (r.ok) {
+      const j = await r.json();
+      if (j.status === 1 && j.product) product = j.product;
+    } else if (r.status !== 404) {
+      failed = true;
+    }
+  } catch {
+    failed = true;
+  }
+  pickScanned(code, product ? offToFood(product) : null, failed);
+}
+
+function pickScanned(code, food, failed) {
+  state.pickedFood = null;
+  fillForm(food ? { name: food.name, serving: food.serving, per: food.per } : {});
+  setFormMode();
+  state.prefilled = true;
+  state.pendingBarcode = code;
+  $('#saveFoodRow').hidden = true; // scanned foods are always saved so the next scan is instant
+  const note = $('#foodNote');
+  note.textContent =
+    !food && failed ? 'Couldn’t reach the food database. Enter the details from the label. They’ll be saved for this barcode.'
+    : !food ? 'This product isn’t in the food database. Enter it from the label once, and next time this barcode fills in automatically.'
+    : !food.per ? `Found “${food.name}”, but it has no nutrition info. Enter it from the label.`
+    : food.per100 ? 'This product only lists nutrition per 100 g. Change the numbers to match your serving if you want.'
+    : '';
+  note.hidden = !note.textContent;
+  showPanel('manual');
+}
+
+$('#barcodeGo').addEventListener('click', () => lookupBarcode($('#barcodeInput').value));
+$('#barcodeInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); lookupBarcode($('#barcodeInput').value); }
+});
+foodDialog.addEventListener('close', () => { stopScanner(); });
 
 function pickDining(item) {
   state.pickedFood = null;
@@ -547,7 +835,15 @@ foodForm.addEventListener('submit', async ev => {
     await db.updateEntry({ ...state.editingEntry, ...base });
   } else {
     let foodId = state.pickedFood?.id ?? null;
-    if (foodId == null && f.saveFood.checked) {
+    if (state.pendingBarcode) {
+      const existing = await db.findFoodByBarcode(state.pendingBarcode);
+      if (existing) {
+        await db.updateFood({ ...existing, name: base.name, serving: base.serving, per });
+        foodId = existing.id;
+      } else {
+        foodId = await db.addFood({ name: base.name, serving: base.serving, per, source: 'barcode', barcode: state.pendingBarcode });
+      }
+    } else if (foodId == null && f.saveFood.checked) {
       foodId = await db.findOrAddFood({ name: base.name, serving: base.serving, per, source: 'custom' });
     }
     await db.addEntry({ ...base, foodId, date: state.viewDate });
@@ -594,7 +890,8 @@ document.querySelectorAll('.tabbar button').forEach(b =>
   b.addEventListener('click', () => {
     state.tab = b.dataset.tab;
     if (state.tab === 'day') state.viewDate = state.today;
-    else state.calMonth = firstOfMonth(new Date());
+    else if (state.tab === 'history') state.calMonth = firstOfMonth(new Date());
+    else weightForm.elements.date.value = state.today;
     render();
   }));
 

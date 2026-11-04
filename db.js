@@ -1,6 +1,6 @@
 // Tiny IndexedDB wrapper. All data lives on the device.
 const DB_NAME = 'fuel';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // v2: weights store
 
 let dbPromise;
 
@@ -8,16 +8,22 @@ function open() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = ev => {
         const db = req.result;
-        // key/value settings (goal history lives here)
-        db.createObjectStore('settings');
-        // saved foods (custom now; dining/barcode later)
-        const foods = db.createObjectStore('foods', { keyPath: 'id', autoIncrement: true });
-        foods.createIndex('name', 'nameLower');
-        // log entries, one per food eaten
-        const entries = db.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
-        entries.createIndex('date', 'date');
+        if (ev.oldVersion < 1) {
+          // key/value settings (goal history lives here)
+          db.createObjectStore('settings');
+          // saved foods (custom, barcode)
+          const foods = db.createObjectStore('foods', { keyPath: 'id', autoIncrement: true });
+          foods.createIndex('name', 'nameLower');
+          // log entries, one per food eaten
+          const entries = db.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
+          entries.createIndex('date', 'date');
+        }
+        if (ev.oldVersion < 2) {
+          // body weight, one per day: { date, weight }
+          db.createObjectStore('weights', { keyPath: 'date' });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -107,6 +113,23 @@ export async function updateEntry(entry) {
 }
 export async function deleteEntry(id) {
   return wrap((await store('entries', 'readwrite')).delete(id));
+}
+
+// ---- weights ----
+export async function getAllWeights() {
+  const list = await wrap((await store('weights')).getAll());
+  return list.sort((a, b) => a.date.localeCompare(b.date));
+}
+export async function saveWeight(date, weight) {
+  return wrap((await store('weights', 'readwrite')).put({ date, weight }));
+}
+export async function deleteWeight(date) {
+  return wrap((await store('weights', 'readwrite')).delete(date));
+}
+
+// ---- barcode foods ----
+export async function findFoodByBarcode(code) {
+  return (await getAllFoods()).find(f => f.barcode === code) || null;
 }
 
 // Ask the browser not to evict our data (honored for home-screen apps on iOS).

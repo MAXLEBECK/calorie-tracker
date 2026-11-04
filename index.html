@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <header class="top">
@@ -69,6 +69,56 @@
         </div>
       </section>
       <p class="muted small center">A day counts when calories are within ±10% of goal and protein reaches its goal.</p>
+
+      <section class="card trends">
+        <div class="section-head">
+          <h2>Trends</h2>
+          <div id="trendSeg" class="seg seg-sm seg-inline">
+            <button type="button" data-range="7">7 days</button>
+            <button type="button" data-range="30">30 days</button>
+          </div>
+        </div>
+        <p class="muted small">Daily calories</p>
+        <div id="calChart" class="chart-host"></div>
+        <p class="muted small">Daily average (days you logged) vs goal</p>
+        <div id="avgGrid" class="avg-grid"></div>
+      </section>
+    </section>
+
+    <!-- Weight view -->
+    <section id="weightView" hidden>
+      <section class="card">
+        <form id="weightForm" class="weight-form">
+          <label>Date <input name="date" type="date" required></label>
+          <label>Weight (lb) <input name="weight" type="number" inputmode="decimal" step="any" min="50" max="1000" required></label>
+          <button type="submit" class="primary">Save</button>
+        </form>
+      </section>
+
+      <section class="card stats">
+        <div><span id="wCurrent" class="stat-num">–</span><span class="muted">Current (lb)</span></div>
+        <div><span id="wChange" class="stat-num">–</span><span class="muted" id="wChangeLabel">Change</span></div>
+        <div><span id="wCount" class="stat-num">0</span><span class="muted">Weigh-ins</span></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Trend</h2>
+          <div id="weightSeg" class="seg seg-sm seg-inline">
+            <button type="button" data-range="30">30d</button>
+            <button type="button" data-range="90">90d</button>
+            <button type="button" data-range="all">All</button>
+          </div>
+        </div>
+        <div id="weightChart" class="chart-host"></div>
+        <label class="check"><input type="checkbox" id="overlayToggle"> Show daily calories behind the line</label>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><h2>Weigh-ins</h2></div>
+        <ul id="weightList" class="entries"></ul>
+        <p id="weightEmpty" class="muted empty">No weigh-ins yet. Add one above.</p>
+      </section>
     </section>
   </main>
 
@@ -77,6 +127,7 @@
   <nav class="tabbar">
     <button data-tab="day" class="active">Today</button>
     <button data-tab="history">History</button>
+    <button data-tab="weight">Weight</button>
   </nav>
 
   <!-- Goals dialog -->
@@ -92,7 +143,7 @@
         <button type="button" class="secondary" data-close>Cancel</button>
         <button type="submit" class="primary">Save</button>
       </div>
-      <p class="muted small center">App version 4</p>
+      <p class="muted small center">App version 5</p>
     </form>
   </dialog>
 
@@ -100,9 +151,20 @@
   <dialog id="foodDialog">
     <h2 id="foodTitle" tabindex="-1" autofocus>Add food</h2>
     <div id="foodTabs" class="seg" role="tablist">
-      <button type="button" data-panel="dining" role="tab">Dining hall</button>
+      <button type="button" data-panel="dining" role="tab">Dining</button>
       <button type="button" data-panel="pick" role="tab">My foods</button>
+      <button type="button" data-panel="scan" role="tab">Scan</button>
       <button type="button" data-panel="manual" role="tab">Manual</button>
+    </div>
+
+    <div id="scanPanel">
+      <div id="scanRegion" class="scan-region"></div>
+      <p id="scanStatus" class="muted small center"></p>
+      <div class="barcode-row">
+        <input id="barcodeInput" type="text" inputmode="numeric" autocomplete="off" placeholder="Or type the barcode number" maxlength="14">
+        <button type="button" class="secondary" id="barcodeGo">Look up</button>
+      </div>
+      <div class="actions"><button type="button" class="secondary" data-close>Close</button></div>
     </div>
 
     <div id="diningPanel">
@@ -143,6 +205,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="app.js?v=4"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>
