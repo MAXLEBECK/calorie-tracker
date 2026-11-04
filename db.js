@@ -53,7 +53,10 @@ export async function getGoalsForDate(date) {
   for (const g of history) {
     if (g.effectiveDate <= date && (!match || g.effectiveDate >= match.effectiveDate)) match = g;
   }
-  return match || history[history.length - 1] || null;
+  return match || history[0] || null;
+}
+export async function getGoalsHistory() {
+  return (await getSetting('goalsHistory')) || [];
 }
 export async function saveGoals(goals, effectiveDate) {
   const history = ((await getSetting('goalsHistory')) || []).filter(g => g.effectiveDate !== effectiveDate);
@@ -66,12 +69,35 @@ export async function saveGoals(goals, effectiveDate) {
 export async function addFood(food) {
   return wrap((await store('foods', 'readwrite')).add({ ...food, nameLower: food.name.toLowerCase() }));
 }
+export async function getFood(id) {
+  return wrap((await store('foods')).get(id));
+}
+export async function getAllFoods() {
+  return wrap((await store('foods')).getAll());
+}
+export async function updateFood(food) {
+  return wrap((await store('foods', 'readwrite')).put({ ...food, nameLower: food.name.toLowerCase() }));
+}
+export async function deleteFood(id) {
+  return wrap((await store('foods', 'readwrite')).delete(id));
+}
+// Reuse an identical saved food instead of creating duplicates.
+export async function findOrAddFood(food) {
+  const same = (await getAllFoods()).find(f =>
+    f.nameLower === food.name.toLowerCase() &&
+    (f.serving || '') === (food.serving || '') &&
+    ['calories', 'protein', 'carbs', 'fat'].every(k => f.per[k] === food.per[k]));
+  return same ? same.id : addFood(food);
+}
 
 // ---- entries ----
 export async function getEntries(date) {
   const idx = (await store('entries')).index('date');
   const list = await wrap(idx.getAll(date));
   return list.sort((a, b) => a.timestamp - b.timestamp);
+}
+export async function getAllEntries() {
+  return wrap((await store('entries')).getAll());
 }
 export async function addEntry(entry) {
   return wrap((await store('entries', 'readwrite')).add({ ...entry, timestamp: Date.now() }));

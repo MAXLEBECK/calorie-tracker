@@ -16,26 +16,68 @@
 <body>
   <header class="top">
     <div>
-      <h1>Today</h1>
+      <h1 id="title">Today</h1>
       <p id="dateLabel" class="muted"></p>
     </div>
-    <button id="settingsBtn" class="icon-btn" aria-label="Goals">⚙︎</button>
+    <div class="top-right">
+      <span id="streakPill" class="streak-pill" title="Current streak"></span>
+      <button id="settingsBtn" class="icon-btn" aria-label="Goals">⚙︎</button>
+    </div>
   </header>
 
   <main>
-    <section id="bars" class="card bars" aria-label="Daily progress"></section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2>Logged</h2>
-        <span id="entryCount" class="muted"></span>
+    <!-- Day view (today or any past day) -->
+    <section id="dayView">
+      <div class="day-nav">
+        <button id="prevDay" class="nav-btn" aria-label="Previous day">‹</button>
+        <button id="jumpToday" class="link-btn" hidden>Back to today</button>
+        <button id="nextDay" class="nav-btn" aria-label="Next day">›</button>
       </div>
-      <ul id="entries" class="entries"></ul>
-      <p id="emptyState" class="muted empty">Nothing logged yet today.</p>
+      <div id="dayStatus" class="day-status" hidden></div>
+
+      <section id="bars" class="card bars" aria-label="Daily progress"></section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Logged</h2>
+          <span id="entryCount" class="muted"></span>
+        </div>
+        <ul id="entries" class="entries"></ul>
+        <p id="emptyState" class="muted empty">Nothing logged yet.</p>
+      </section>
+    </section>
+
+    <!-- History view -->
+    <section id="historyView" hidden>
+      <section class="card stats">
+        <div><span id="statCurrent" class="stat-num">0</span><span class="muted">Current streak</span></div>
+        <div><span id="statBest" class="stat-num">0</span><span class="muted">Best streak</span></div>
+        <div><span id="statMonth" class="stat-num">0</span><span class="muted">Hit this month</span></div>
+      </section>
+
+      <section class="card">
+        <div class="month-nav">
+          <button id="prevMonth" class="nav-btn" aria-label="Previous month">‹</button>
+          <h2 id="monthLabel"></h2>
+          <button id="nextMonth" class="nav-btn" aria-label="Next month">›</button>
+        </div>
+        <div class="cal-head"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+        <div id="calendar" class="cal-grid"></div>
+        <div class="legend muted">
+          <span><i class="dot hit"></i> Goals hit</span>
+          <span><i class="dot miss"></i> Logged, missed</span>
+        </div>
+      </section>
+      <p class="muted small center">A day counts when calories are within ±10% of goal and protein reaches its goal.</p>
     </section>
   </main>
 
   <button id="addBtn" class="fab">+ Add food</button>
+
+  <nav class="tabbar">
+    <button data-tab="day" class="active">Today</button>
+    <button data-tab="history">History</button>
+  </nav>
 
   <!-- Goals dialog -->
   <dialog id="goalsDialog">
@@ -55,8 +97,19 @@
 
   <!-- Add / edit food dialog -->
   <dialog id="foodDialog">
+    <h2 id="foodTitle">Add food</h2>
+    <div id="foodTabs" class="seg" role="tablist">
+      <button type="button" data-panel="pick" role="tab">My foods</button>
+      <button type="button" data-panel="manual" role="tab">Manual</button>
+    </div>
+
+    <div id="pickPanel">
+      <input id="foodSearch" type="search" placeholder="Search my foods" autocomplete="off">
+      <div id="pickList"></div>
+      <div class="actions"><button type="button" class="secondary" data-close>Close</button></div>
+    </div>
+
     <form id="foodForm" method="dialog">
-      <h2 id="foodTitle">Add food</h2>
       <label>Name <input name="name" type="text" autocomplete="off" required maxlength="80"></label>
       <label><span>Serving size <span class="muted">(optional)</span></span>
         <input name="serving" type="text" autocomplete="off" placeholder="e.g. 4 oz, 1 cup" maxlength="40"></label>
@@ -72,6 +125,7 @@
       <label class="check" id="saveFoodRow"><input name="saveFood" type="checkbox" checked> Save to my foods</label>
       <div class="actions">
         <button type="button" class="danger" id="deleteEntryBtn" hidden>Delete</button>
+        <button type="button" class="danger" id="forgetFoodBtn" hidden>Remove from my foods</button>
         <button type="button" class="secondary" data-close>Cancel</button>
         <button type="submit" class="primary" id="foodSubmit">Log it</button>
       </div>

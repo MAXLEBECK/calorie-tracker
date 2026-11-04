@@ -1,4 +1,8 @@
 import * as db from './db.js';
+import {
+  MACRO_KEYS, dateKey, parseKey, addDays, entryTotals, sumTotals,
+  goalsFor, summarizeDays, currentStreak, bestStreak,
+} from './stats.js';
 
 const MACROS = [
   { key: 'calories', label: 'Calories', unit: '' },
@@ -13,16 +17,20 @@ const goalsForm = $('#goalsForm');
 const foodDialog = $('#foodDialog');
 const foodForm = $('#foodForm');
 
-let today = dateKey(new Date());
-let editingEntry = null; // entry being edited, or null when adding
+const state = {
+  today: dateKey(new Date()),
+  viewDate: dateKey(new Date()),
+  tab: 'day',
+  calMonth: firstOfMonth(new Date()),
+  entries: [],        // all log entries
+  goalsHistory: [],
+  days: {},           // per-day summary { totals, hit, count }
+  editingEntry: null, // entry being edited
+  pickedFood: null,   // saved food chosen from My foods
+};
 
 // ---------- helpers ----------
-function dateKey(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+function firstOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function num(v) {
   const n = parseFloat(v);
   return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -30,18 +38,9 @@ function num(v) {
 function fmt(key, v) {
   return key === 'calories' ? Math.round(v).toLocaleString() : (Math.round(v * 10) / 10).toString();
 }
-function entryTotals(e) {
-  const t = {};
-  for (const { key } of MACROS) t[key] = e.per[key] * e.servings;
-  return t;
-}
-function sumTotals(entries) {
-  const t = { calories: 0, protein: 0, carbs: 0, fat: 0 };
-  for (const e of entries) {
-    const et = entryTotals(e);
-    for (const k in t) t[k] += et[k];
-  }
-  return t;
+function macroLine(per, servings = 1) {
+  return `${fmt('calories', per.calories * servings)} cal · P ${fmt('protein', per.protein * servings)}g · ` +
+    `C ${fmt('carbs', per.carbs * servings)}g · F ${fmt('fat', per.fat * servings)}g`;
 }
 // under / hit / over relative to goal. Protein only needs to reach the goal.
 function status(key, eaten, goal, tolerancePct) {
@@ -52,16 +51,71 @@ function status(key, eaten, goal, tolerancePct) {
   if (pct > 100 + tolerancePct) return 'over';
   return 'hit';
 }
+// Two-tap confirm (no native confirm() popups in home-screen apps).
+function twoTap(btn, label, action) {
+  btn.addEventListener('click', async () => {
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Tap again to confirm';
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => { btn.dataset.armed = ''; btn.textContent = label; }, 3000);
+      return;
+    }
+    btn.dataset.armed = '';
+    btn.textContent = label;
+    await action();
+  });
+}
+function resetTwoTap(btn, label) { btn.dataset.armed = ''; btn.textContent = label; }
 
 // ---------- render ----------
 async function render() {
-  today = dateKey(new Date());
-  $('#dateLabel').textContent = new Date().toLocaleDateString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric',
-  });
+  state.today = dateKey(new Date());
+  [state.entries, state.goalsHistory] = await Promise.all([db.getAllEntries(), db.getGoalsHistory()]);
+  state.days = summarizeDays(state.entries, state.goalsHistory);
 
-  const [goals, entries] = await Promise.all([db.getGoalsForDate(today), db.getEntries(today)]);
-  renderBars(goals, sumTotals(entries));
+  const streak = currentStreak(state.days, state.today);
+  const pill = $('#streakPill');
+  pill.hidden = streak === 0;
+  pill.textContent = `🔥 ${streak}`;
+  pill.setAttribute('aria-label', `${streak} day streak`);
+
+  $('#dayView').hidden = state.tab !== 'day';
+  $('#historyView').hidden = state.tab !== 'history';
+  $('#addBtn').hidden = state.tab !== 'day';
+  document.querySelectorAll('.tabbar button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === state.tab));
+
+  if (state.tab === 'day') renderDay(); else renderHistory(streak);
+}
+
+function renderDay() {
+  const { viewDate, today } = state;
+  const d = parseKey(viewDate);
+  $('#title').textContent = viewDate === today ? 'Today'
+    : viewDate === addDays(today, -1) ? 'Yesterday'
+    : d.toLocaleDateString(undefined, { weekday: 'long' });
+  $('#dateLabel').textContent = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  $('#nextDay').disabled = viewDate >= today;
+  $('#jumpToday').hidden = viewDate === today;
+
+  const entries = state.entries.filter(e => e.date === viewDate).sort((a, b) => a.timestamp - b.timestamp);
+  const goals = goalsFor(viewDate, state.goalsHistory);
+  const totals = sumTotals(entries);
+  const hit = state.days[viewDate]?.hit;
+
+  const st = $('#dayStatus');
+  if (hit) {
+    st.hidden = false; st.className = 'day-status hit';
+    st.textContent = viewDate === today ? '✅ Goals hit today, so it counts toward your streak' : '✅ Goals hit';
+  } else if (viewDate !== today && entries.length) {
+    st.hidden = false; st.className = 'day-status miss';
+    st.textContent = 'Goals missed this day';
+  } else {
+    st.hidden = true;
+  }
+
+  renderBars(goals, totals);
   renderEntries(entries);
 }
 
@@ -126,9 +180,42 @@ function renderEntries(entries) {
   }
 }
 
+function renderHistory(streak) {
+  const { calMonth, days, today } = state;
+  $('#title').textContent = 'History';
+  $('#dateLabel').textContent = 'Your streak and past days';
+  $('#monthLabel').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('#nextMonth').disabled = calMonth >= firstOfMonth(new Date());
+
+  const grid = $('#calendar');
+  grid.replaceChildren();
+  for (let i = 0; i < calMonth.getDay(); i++) grid.append(document.createElement('span'));
+
+  const daysInMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+  let monthHits = 0;
+  for (let n = 1; n <= daysInMonth; n++) {
+    const key = dateKey(new Date(calMonth.getFullYear(), calMonth.getMonth(), n));
+    const info = days[key];
+    const cell = document.createElement('button');
+    cell.className = 'cal-day';
+    cell.textContent = n;
+    if (info?.hit) { cell.classList.add('hit'); monthHits++; }
+    else if (info && key !== today) cell.classList.add('miss'); // today isn't over yet
+    if (key === today) cell.classList.add('today');
+    if (key > today) { cell.disabled = true; cell.classList.add('future'); }
+    cell.setAttribute('aria-label', key + (info?.hit ? ', goals hit' : info ? ', missed' : ''));
+    cell.addEventListener('click', () => { state.viewDate = key; state.tab = 'day'; render(); });
+    grid.append(cell);
+  }
+
+  $('#statCurrent').textContent = streak;
+  $('#statBest').textContent = bestStreak(days);
+  $('#statMonth').textContent = monthHits;
+}
+
 // ---------- goals ----------
-async function openGoals(firstRun = false) {
-  const g = await db.getGoalsForDate(today);
+function openGoals(firstRun = false) {
+  const g = goalsFor(state.today, state.goalsHistory);
   for (const { key } of MACROS) goalsForm.elements[key].value = g ? g[key] : '';
   $('#goalsIntro').hidden = !firstRun;
   goalsForm.querySelector('[data-close]').hidden = firstRun;
@@ -143,51 +230,181 @@ goalsForm.addEventListener('submit', async ev => {
     protein: num(f.protein.value),
     carbs: num(f.carbs.value),
     fat: num(f.fat.value),
-  }, today);
+  }, state.today);
   goalsDialog.close();
   render();
 });
-// Don't let the first-run goals dialog be dismissed with Escape.
 goalsDialog.addEventListener('cancel', ev => {
   if (goalsForm.querySelector('[data-close]').hidden) ev.preventDefault();
 });
 
 // ---------- add / edit food ----------
-function openFood(entry = null) {
-  editingEntry = entry;
+function showPanel(name) {
+  $('#pickPanel').hidden = name !== 'pick';
+  foodForm.hidden = name !== 'manual';
+  document.querySelectorAll('#foodTabs button').forEach(b =>
+    b.classList.toggle('active', b.dataset.panel === name));
+}
+
+function fillForm({ name = '', serving = '', per = null, servings = 1 } = {}) {
   foodForm.reset();
   const f = foodForm.elements;
-  if (entry) {
-    f.name.value = entry.name;
-    f.serving.value = entry.serving || '';
-    for (const { key } of MACROS) f[key].value = entry.per[key];
-    f.servings.value = entry.servings;
-  }
-  $('#foodTitle').textContent = entry ? 'Edit entry' : 'Add food';
-  $('#foodSubmit').textContent = entry ? 'Save' : 'Log it';
-  $('#deleteEntryBtn').hidden = !entry;
-  $('#saveFoodRow').hidden = !!entry;
+  f.name.value = name;
+  f.serving.value = serving || '';
+  if (per) for (const k of MACRO_KEYS) f[k].value = per[k];
+  f.servings.value = servings;
   updateFoodTotal();
+}
+
+function setFormMode({ editing = false, fromSaved = false } = {}) {
+  $('#foodTitle').textContent = editing ? 'Edit entry' : 'Add food';
+  $('#foodTabs').hidden = editing;
+  $('#foodSubmit').textContent = editing ? 'Save' : 'Log it';
+  $('#deleteEntryBtn').hidden = !editing;
+  $('#forgetFoodBtn').hidden = editing || !fromSaved;
+  $('#saveFoodRow').hidden = editing || fromSaved;
+  resetTwoTap($('#deleteEntryBtn'), 'Delete');
+  resetTwoTap($('#forgetFoodBtn'), 'Remove from my foods');
+}
+
+async function openFood(entry = null) {
+  state.editingEntry = entry;
+  state.pickedFood = null;
+  if (entry) {
+    fillForm(entry);
+    setFormMode({ editing: true });
+    showPanel('manual');
+    foodDialog.showModal();
+    return;
+  }
+  fillForm();
+  setFormMode();
+  $('#foodSearch').value = '';
+  const hasHistory = state.entries.length > 0 || (await db.getAllFoods()).length > 0;
+  await renderPickList();
+  showPanel(hasHistory ? 'pick' : 'manual');
   foodDialog.showModal();
-  if (!entry) f.name.focus();
+}
+
+// Recent: unique foods from your log, newest first.
+function recentItems(foodsById) {
+  const seen = new Set();
+  const out = [];
+  const sorted = [...state.entries].sort((a, b) => b.timestamp - a.timestamp);
+  for (const e of sorted) {
+    const key = `${e.name.toLowerCase()}|${e.serving || ''}|${e.per.calories}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const food = e.foodId != null ? foodsById.get(e.foodId) : null;
+    out.push(food || { id: null, name: e.name, serving: e.serving, per: e.per });
+    if (out.length >= 15) break;
+  }
+  return out;
+}
+
+async function renderPickList() {
+  const foods = await db.getAllFoods();
+  const foodsById = new Map(foods.map(f => [f.id, f]));
+  const q = $('#foodSearch').value.trim().toLowerCase();
+  const list = $('#pickList');
+  list.replaceChildren();
+
+  const sections = [];
+  if (q) {
+    const recent = recentItems(foodsById).filter(r => r.id == null);
+    const matches = [...foods, ...recent]
+      .filter(f => f.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    sections.push(['Results', matches]);
+  } else {
+    const favorites = foods.filter(f => f.favorite).sort((a, b) => a.name.localeCompare(b.name));
+    const recent = recentItems(foodsById);
+    const shown = new Set([...favorites, ...recent].map(f => f.id).filter(id => id != null));
+    sections.push(['Favorites', favorites]);
+    sections.push(['Recent', recent]);
+    sections.push(['All my foods', foods.filter(f => !shown.has(f.id)).sort((a, b) => a.name.localeCompare(b.name))]);
+  }
+
+  let any = false;
+  for (const [title, items] of sections) {
+    if (!items.length) continue;
+    any = true;
+    const h = document.createElement('h3');
+    h.className = 'pick-head';
+    h.textContent = title;
+    list.append(h);
+    const ul = document.createElement('ul');
+    ul.className = 'pick-items';
+    for (const item of items) ul.append(pickRow(item));
+    list.append(ul);
+  }
+  if (!any) {
+    const p = document.createElement('p');
+    p.className = 'muted empty';
+    p.textContent = q ? 'No matches. Try the Manual tab.' : 'Foods you log will show up here.';
+    list.append(p);
+  }
+}
+
+function pickRow(item) {
+  const li = document.createElement('li');
+  li.className = 'pick-row';
+  const main = document.createElement('button');
+  main.type = 'button';
+  main.className = 'pick-main';
+  main.innerHTML = '<span class="entry-name"></span><span class="entry-sub muted"></span>';
+  main.querySelector('.entry-name').textContent = item.name;
+  main.querySelector('.entry-sub').textContent = (item.serving ? item.serving + ' · ' : '') + macroLine(item.per);
+  main.addEventListener('click', () => pickFood(item));
+
+  const star = document.createElement('button');
+  star.type = 'button';
+  star.className = 'star' + (item.favorite ? ' on' : '');
+  star.textContent = item.favorite ? '★' : '☆';
+  star.setAttribute('aria-label', item.favorite ? 'Remove favorite' : 'Add favorite');
+  star.addEventListener('click', async () => {
+    if (item.id == null) {
+      const id = await db.findOrAddFood({ name: item.name, serving: item.serving, per: item.per, source: 'custom' });
+      const food = await db.getFood(id);
+      await db.updateFood({ ...food, favorite: true });
+    } else {
+      await db.updateFood({ ...item, favorite: !item.favorite });
+    }
+    renderPickList();
+  });
+
+  li.append(main, star);
+  return li;
+}
+
+function pickFood(item) {
+  state.pickedFood = item.id != null ? item : null;
+  fillForm({ name: item.name, serving: item.serving, per: item.per, servings: 1 });
+  setFormMode({ fromSaved: item.id != null });
+  showPanel('manual');
 }
 
 function updateFoodTotal() {
   const f = foodForm.elements;
-  const s = num(f.servings.value);
-  $('#foodTotal').textContent =
-    `Total: ${fmt('calories', num(f.calories.value) * s)} cal · ` +
-    `P ${fmt('protein', num(f.protein.value) * s)}g · ` +
-    `C ${fmt('carbs', num(f.carbs.value) * s)}g · ` +
-    `F ${fmt('fat', num(f.fat.value) * s)}g`;
+  const per = {};
+  for (const k of MACRO_KEYS) per[k] = num(f[k].value);
+  $('#foodTotal').textContent = 'Total: ' + macroLine(per, num(f.servings.value));
 }
 foodForm.addEventListener('input', updateFoodTotal);
+$('#foodSearch').addEventListener('input', renderPickList);
+document.querySelectorAll('#foodTabs button').forEach(b =>
+  b.addEventListener('click', () => {
+    if (b.dataset.panel === 'manual' && state.pickedFood) {
+      state.pickedFood = null; fillForm(); setFormMode();
+    }
+    showPanel(b.dataset.panel);
+  }));
 
 foodForm.addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = foodForm.elements;
   const per = {};
-  for (const { key } of MACROS) per[key] = num(f[key].value);
+  for (const k of MACRO_KEYS) per[k] = num(f[k].value);
   const base = {
     name: f.name.value.trim(),
     serving: f.serving.value.trim(),
@@ -195,50 +412,74 @@ foodForm.addEventListener('submit', async ev => {
     servings: num(f.servings.value) || 1,
   };
 
-  if (editingEntry) {
-    await db.updateEntry({ ...editingEntry, ...base });
+  if (state.editingEntry) {
+    await db.updateEntry({ ...state.editingEntry, ...base });
   } else {
-    let foodId = null;
-    if (f.saveFood.checked) {
-      foodId = await db.addFood({ name: base.name, serving: base.serving, per, source: 'custom' });
+    let foodId = state.pickedFood?.id ?? null;
+    if (foodId == null && f.saveFood.checked) {
+      foodId = await db.findOrAddFood({ name: base.name, serving: base.serving, per, source: 'custom' });
     }
-    await db.addEntry({ ...base, foodId, date: today });
+    await db.addEntry({ ...base, foodId, date: state.viewDate });
   }
   foodDialog.close();
   render();
 });
 
-$('#deleteEntryBtn').addEventListener('click', async () => {
-  const btn = $('#deleteEntryBtn');
-  // two-tap confirm (no native confirm() popups in home-screen apps)
-  if (btn.dataset.armed !== '1') {
-    btn.dataset.armed = '1';
-    btn.textContent = 'Tap again to delete';
-    setTimeout(() => { btn.dataset.armed = ''; btn.textContent = 'Delete'; }, 3000);
-    return;
-  }
-  btn.dataset.armed = '';
-  btn.textContent = 'Delete';
-  await db.deleteEntry(editingEntry.id);
+twoTap($('#deleteEntryBtn'), 'Delete', async () => {
+  await db.deleteEntry(state.editingEntry.id);
   foodDialog.close();
   render();
 });
+twoTap($('#forgetFoodBtn'), 'Remove from my foods', async () => {
+  await db.deleteFood(state.pickedFood.id);
+  state.pickedFood = null;
+  fillForm(); setFormMode();
+  await renderPickList();
+  showPanel('pick');
+});
 
-// ---------- wiring ----------
+// ---------- navigation ----------
 document.querySelectorAll('[data-close]').forEach(b =>
   b.addEventListener('click', () => b.closest('dialog').close()));
 $('#addBtn').addEventListener('click', () => openFood());
 $('#settingsBtn').addEventListener('click', () => openGoals());
+$('#streakPill').addEventListener('click', () => { state.tab = 'history'; render(); });
+
+$('#prevDay').addEventListener('click', () => { state.viewDate = addDays(state.viewDate, -1); render(); });
+$('#nextDay').addEventListener('click', () => {
+  if (state.viewDate < state.today) { state.viewDate = addDays(state.viewDate, 1); render(); }
+});
+$('#jumpToday').addEventListener('click', () => { state.viewDate = state.today; render(); });
+
+$('#prevMonth').addEventListener('click', () => {
+  state.calMonth = new Date(state.calMonth.getFullYear(), state.calMonth.getMonth() - 1, 1); render();
+});
+$('#nextMonth').addEventListener('click', () => {
+  state.calMonth = new Date(state.calMonth.getFullYear(), state.calMonth.getMonth() + 1, 1); render();
+});
+
+document.querySelectorAll('.tabbar button').forEach(b =>
+  b.addEventListener('click', () => {
+    state.tab = b.dataset.tab;
+    if (state.tab === 'day') state.viewDate = state.today;
+    else state.calMonth = firstOfMonth(new Date());
+    render();
+  }));
 
 // Roll over to a new day if the app is reopened after midnight.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && dateKey(new Date()) !== today) render();
+  if (document.hidden) return;
+  const now = dateKey(new Date());
+  if (now !== state.today) {
+    if (state.viewDate === state.today) state.viewDate = now;
+    render();
+  }
 });
 
 (async function init() {
   db.requestPersistence();
   await render();
-  if (!(await db.getGoalsForDate(today))) openGoals(true);
+  if (!goalsFor(state.today, state.goalsHistory)) openGoals(true);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }

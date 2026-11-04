@@ -9,6 +9,7 @@ All data is stored on the device (IndexedDB).
 | `index.html` | Page layout and dialogs |
 | `app.js` | App logic: goals, logging, progress bars |
 | `db.js` | On-device storage (goals history, foods, log entries) |
+| `stats.js` | Dates, daily totals, goal check and streak math |
 | `styles.css` | Styling (follows iPhone light/dark mode) |
 | `sw.js` | Offline support. **Bump `VERSION` whenever you change app files.** |
 | `manifest.webmanifest`, `icons/` | Home-screen app name and icon |
@@ -32,6 +33,6 @@ from being auto-cleared, but not data from sites opened in a regular Safari tab.
 
 ## Roadmap
 - [x] Phase 1 – goals, manual logging, progress bars, installable/offline
-- [ ] Phase 2 – streak, favorites & recent, history
+- [x] Phase 2 – streak, favorites & recent, history
 - [ ] Phase 3 – Traditions at Scott & Morrill menus via Nutrislice (nightly GitHub Action)
 - [ ] Phase 4 – barcode scanner, weight tracking, charts
