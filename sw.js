@@ -1,5 +1,5 @@
 // Offline support: cache the app shell. Bump VERSION whenever app files change.
-const VERSION = 'fuel-v3';
+const VERSION = 'fuel-v4';
 const SHELL = [
   './',
   './index.html',

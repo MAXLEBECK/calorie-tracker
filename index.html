@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <header class="top">
@@ -92,16 +92,25 @@
         <button type="button" class="secondary" data-close>Cancel</button>
         <button type="submit" class="primary">Save</button>
       </div>
-      <p class="muted small center">App version 3</p>
+      <p class="muted small center">App version 4</p>
     </form>
   </dialog>
 
   <!-- Add / edit food dialog -->
   <dialog id="foodDialog">
-    <h2 id="foodTitle">Add food</h2>
+    <h2 id="foodTitle" tabindex="-1" autofocus>Add food</h2>
     <div id="foodTabs" class="seg" role="tablist">
+      <button type="button" data-panel="dining" role="tab">Dining hall</button>
       <button type="button" data-panel="pick" role="tab">My foods</button>
       <button type="button" data-panel="manual" role="tab">Manual</button>
+    </div>
+
+    <div id="diningPanel">
+      <div id="hallSeg" class="seg"></div>
+      <div id="mealSeg" class="seg seg-sm"></div>
+      <input id="diningSearch" type="search" placeholder="Search this menu" autocomplete="off">
+      <div id="diningList"></div>
+      <div class="actions"><button type="button" class="secondary" data-close>Close</button></div>
     </div>
 
     <div id="pickPanel">
@@ -114,6 +123,7 @@
       <label>Name <input name="name" type="text" autocomplete="off" required maxlength="80"></label>
       <label><span>Serving size <span class="muted">(optional)</span></span>
         <input name="serving" type="text" autocomplete="off" placeholder="e.g. 4 oz, 1 cup" maxlength="40"></label>
+      <p id="foodNote" class="note" hidden></p>
       <p class="muted small">Nutrition per serving</p>
       <div class="grid2">
         <label>Calories <input name="calories" type="number" inputmode="decimal" min="0" step="any" required></label>
@@ -133,6 +143,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>

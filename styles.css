@@ -186,8 +186,36 @@ input:focus { outline: 2px solid var(--under); outline-offset: 1px; }
 
 /* food picker */
 #foodDialog { display: none; }
-#foodDialog[open] { display: grid; gap: 12px; }
-.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--track); border-radius: 10px; padding: 3px; }
+/* Column layout: list panels fill the space and scroll on their own; the
+   manual form (taller) lets the whole dialog scroll instead. */
+#foodDialog[open] { display: flex; flex-direction: column; gap: 12px; }
+#foodDialog > * { flex: none; }
+#foodDialog > #diningPanel, #foodDialog > #pickPanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#diningPanel > *, #pickPanel > * { flex: none; }
+#diningPanel > #diningList, #pickPanel > #pickList {
+  flex: 1 1 auto; min-height: 120px; max-height: none; overflow-y: auto; overflow-x: hidden;
+}
+.pick-main .entry-name, .pick-main .entry-sub { overflow-wrap: anywhere; }
+#foodTitle:focus { outline: none; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--track); border-radius: 10px; padding: 3px; }
+.seg-sm button { padding: 6px; font-size: 14px; }
+#diningPanel { display: grid; gap: 8px; }
+#diningList { max-height: 46vh; overflow: auto; }
+.station { border-top: 1px solid var(--line); }
+.station:first-child { border-top: 0; }
+.station summary {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 2px; cursor: pointer; list-style: none; font-weight: 600;
+}
+.station summary::-webkit-details-marker { display: none; }
+.station summary::after { content: '›'; color: var(--muted); font-size: 20px; margin-left: 8px; transition: transform .15s; }
+.station[open] summary::after { transform: rotate(90deg); }
+.station-name { flex: 1; }
+.station .pick-items { padding-left: 4px; margin-bottom: 6px; }
+.note {
+  margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 14px;
+  background: color-mix(in srgb, #eab308 15%, transparent); color: var(--text);
+}
 .seg button {
   border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
   padding: 8px; border-radius: 8px; cursor: pointer;

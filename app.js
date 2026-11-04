@@ -1,9 +1,9 @@
 // Bump ?v= here, in index.html, and VERSION in sw.js on every release.
-import * as db from './db.js?v=3';
+import * as db from './db.js?v=4';
 import {
   MACRO_KEYS, dateKey, parseKey, addDays, entryTotals, sumTotals,
   goalsFor, summarizeDays, currentStreak, bestStreak,
-} from './stats.js?v=3';
+} from './stats.js?v=4';
 
 const MACROS = [
   { key: 'calories', label: 'Calories', unit: '' },
@@ -28,7 +28,33 @@ const state = {
   days: {},           // per-day summary { totals, hit, count }
   editingEntry: null, // entry being edited
   pickedFood: null,   // saved food chosen from My foods
+  prefilled: false,   // form was filled from My foods / Dining
+  panel: 'manual',    // visible Add food panel
+  diningHall: storedHall(),
+  diningMeal: null,
 };
+
+// ---------- dining menus (published nightly to data/menus/YYYY-MM-DD.json) ----------
+const menuCache = new Map();
+async function loadMenu(date) {
+  if (menuCache.has(date)) return menuCache.get(date);
+  let data = null;
+  try {
+    const r = await fetch(`data/menus/${date}.json`);
+    if (r.ok) data = await r.json();
+  } catch {}
+  if (data) menuCache.set(date, data); // don't remember misses, so a retry can succeed
+  return data;
+}
+function storedHall() { try { return localStorage.getItem('fuel.hall'); } catch { return null; } }
+function storeHall(id) { try { localStorage.setItem('fuel.hall', id); } catch {} }
+function defaultMealId(hall) {
+  const now = new Date();
+  const h = now.getHours() + now.getMinutes() / 60;
+  const want = h < 10.5 ? 'breakfast' : h < 16 ? 'lunch' : 'dinner';
+  const byWord = w => hall.meals.find(m => m.name.toLowerCase().includes(w));
+  return (byWord(want) || byWord('lunch') || hall.meals[0]).id;
+}
 
 // ---------- helpers ----------
 function firstOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
@@ -241,6 +267,8 @@ goalsDialog.addEventListener('cancel', ev => {
 
 // ---------- add / edit food ----------
 function showPanel(name) {
+  state.panel = name;
+  $('#diningPanel').hidden = name !== 'dining';
   $('#pickPanel').hidden = name !== 'pick';
   foodForm.hidden = name !== 'manual';
   document.querySelectorAll('#foodTabs button').forEach(b =>
@@ -264,6 +292,7 @@ function setFormMode({ editing = false, fromSaved = false } = {}) {
   $('#deleteEntryBtn').hidden = !editing;
   $('#forgetFoodBtn').hidden = editing || !fromSaved;
   $('#saveFoodRow').hidden = editing || fromSaved;
+  $('#foodNote').hidden = true;
   resetTwoTap($('#deleteEntryBtn'), 'Delete');
   resetTwoTap($('#forgetFoodBtn'), 'Remove from my foods');
 }
@@ -271,6 +300,7 @@ function setFormMode({ editing = false, fromSaved = false } = {}) {
 async function openFood(entry = null) {
   state.editingEntry = entry;
   state.pickedFood = null;
+  state.prefilled = false;
   if (entry) {
     fillForm(entry);
     setFormMode({ editing: true });
@@ -281,10 +311,107 @@ async function openFood(entry = null) {
   fillForm();
   setFormMode();
   $('#foodSearch').value = '';
-  const hasHistory = state.entries.length > 0 || (await db.getAllFoods()).length > 0;
-  await renderPickList();
-  showPanel(hasHistory ? 'pick' : 'manual');
+  $('#diningSearch').value = '';
+  const [menu, foods] = await Promise.all([loadMenu(state.viewDate), db.getAllFoods()]);
+  const hasHistory = state.entries.length > 0 || foods.length > 0;
+  await Promise.all([renderPickList(), renderDining()]);
+  showPanel(menu?.halls?.length ? 'dining' : hasHistory ? 'pick' : 'manual');
   foodDialog.showModal();
+}
+
+function segButtons(container, options, activeId, onPick) {
+  container.replaceChildren();
+  for (const [id, label] of options) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.classList.toggle('active', id === activeId);
+    b.addEventListener('click', () => onPick(id));
+    container.append(b);
+  }
+}
+
+function emptyMsg(text) {
+  const p = document.createElement('p');
+  p.className = 'muted empty';
+  p.textContent = text;
+  return p;
+}
+
+async function renderDining() {
+  const menu = await loadMenu(state.viewDate);
+  const list = $('#diningList');
+  list.replaceChildren();
+  const controls = [$('#hallSeg'), $('#mealSeg'), $('#diningSearch')];
+
+  if (!menu?.halls?.length) {
+    controls.forEach(c => { c.hidden = true; });
+    list.append(emptyMsg(navigator.onLine === false
+      ? 'You’re offline and this day’s menu isn’t saved on your phone yet.'
+      : 'No dining hall menu is available for this day.'));
+    return;
+  }
+  controls.forEach(c => { c.hidden = false; });
+
+  const hall = menu.halls.find(h => h.id === state.diningHall) || menu.halls[0];
+  state.diningHall = hall.id;
+  if (!hall.meals.some(m => m.id === state.diningMeal)) state.diningMeal = defaultMealId(hall);
+  const meal = hall.meals.find(m => m.id === state.diningMeal);
+
+  segButtons($('#hallSeg'), menu.halls.map(h => [h.id, h.name.replace(/^Traditions at /, '')]), hall.id, id => {
+    state.diningHall = id; storeHall(id); state.diningMeal = null; renderDining();
+  });
+  segButtons($('#mealSeg'), hall.meals.map(m => [m.id, m.name]), meal.id, id => {
+    state.diningMeal = id; renderDining();
+  });
+
+  const q = $('#diningSearch').value.trim().toLowerCase();
+  let shown = 0;
+  for (const st of meal.stations) {
+    const items = q ? st.items.filter(i => i.name.toLowerCase().includes(q)) : st.items;
+    if (!items.length) continue;
+    shown += items.length;
+    const det = document.createElement('details');
+    det.className = 'station';
+    det.open = !!q;
+    const sum = document.createElement('summary');
+    sum.innerHTML = '<span class="station-name"></span><span class="muted"></span>';
+    sum.children[0].textContent = st.name;
+    sum.children[1].textContent = items.length;
+    const ul = document.createElement('ul');
+    ul.className = 'pick-items';
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.className = 'pick-row';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick-main';
+      b.innerHTML = '<span class="entry-name"></span><span class="entry-sub muted"></span>';
+      b.children[0].textContent = item.name;
+      b.children[1].textContent = (item.serving ? item.serving + ' · ' : '') +
+        (item.per ? macroLine(item.per) : 'No nutrition info listed');
+      b.addEventListener('click', () => pickDining(item));
+      li.append(b);
+      ul.append(li);
+    }
+    det.append(sum, ul);
+    list.append(det);
+  }
+  if (!shown) list.append(emptyMsg('No matches on this menu.'));
+}
+
+function pickDining(item) {
+  state.pickedFood = null;
+  fillForm({ name: item.name, serving: item.serving, per: item.per, servings: 1 });
+  setFormMode();
+  state.prefilled = true;
+  foodForm.elements.saveFood.checked = false; // dining items show up in Recent anyway
+  if (!item.per) {
+    const note = $('#foodNote');
+    note.textContent = 'The dining site doesn’t list nutrition for this item. Enter it if you know it.';
+    note.hidden = false;
+  }
+  showPanel('manual');
 }
 
 // Recent: unique foods from your log, newest first.
@@ -382,6 +509,7 @@ function pickFood(item) {
   state.pickedFood = item.id != null ? item : null;
   fillForm({ name: item.name, serving: item.serving, per: item.per, servings: 1 });
   setFormMode({ fromSaved: item.id != null });
+  state.prefilled = true;
   showPanel('manual');
 }
 
@@ -393,10 +521,12 @@ function updateFoodTotal() {
 }
 foodForm.addEventListener('input', updateFoodTotal);
 $('#foodSearch').addEventListener('input', renderPickList);
+$('#diningSearch').addEventListener('input', renderDining);
 document.querySelectorAll('#foodTabs button').forEach(b =>
   b.addEventListener('click', () => {
-    if (b.dataset.panel === 'manual' && state.pickedFood) {
-      state.pickedFood = null; fillForm(); setFormMode();
+    // Switching to Manual from another tab starts a blank form.
+    if (b.dataset.panel === 'manual' && state.panel !== 'manual' && state.prefilled) {
+      state.pickedFood = null; state.prefilled = false; fillForm(); setFormMode();
     }
     showPanel(b.dataset.panel);
   }));
@@ -434,6 +564,7 @@ twoTap($('#deleteEntryBtn'), 'Delete', async () => {
 twoTap($('#forgetFoodBtn'), 'Remove from my foods', async () => {
   await db.deleteFood(state.pickedFood.id);
   state.pickedFood = null;
+  state.prefilled = false;
   fillForm(); setFormMode();
   await renderPickList();
   showPanel('pick');
@@ -481,6 +612,7 @@ document.addEventListener('visibilitychange', () => {
   db.requestPersistence();
   await render();
   if (!goalsFor(state.today, state.goalsHistory)) openGoals(true);
+  loadMenu(state.today); // prefetch so today's menu is saved for spotty dining-hall signal
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }

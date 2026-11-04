@@ -13,6 +13,9 @@ All data is stored on the device (IndexedDB).
 | `styles.css` | Styling (follows iPhone light/dark mode) |
 | `sw.js` | Offline support. **Bump `VERSION` whenever you change app files.** |
 | `manifest.webmanifest`, `icons/` | Home-screen app name and icon |
+| `scripts/fetch_menus.py` | Pulls Traditions at Scott & Morrill menus from Nutrislice into `data/menus/` |
+| `.github/workflows/menus.yml` | Runs the menu fetch twice daily (and on demand: Actions → Update dining menus → Run) |
+| `data/menus/YYYY-MM-DD.json` | One file per day (yesterday through 6 days ahead); old days pruned |
 | `tools/serve.ps1` | Local preview server |
 | `tools/make-icons.ps1` | Regenerates icons |
 
@@ -34,5 +37,5 @@ from being auto-cleared, but not data from sites opened in a regular Safari tab.
 ## Roadmap
 - [x] Phase 1 – goals, manual logging, progress bars, installable/offline
 - [x] Phase 2 – streak, favorites & recent, history
-- [ ] Phase 3 – Traditions at Scott & Morrill menus via Nutrislice (nightly GitHub Action)
+- [x] Phase 3 – Traditions at Scott & Morrill menus via Nutrislice (nightly GitHub Action)
 - [ ] Phase 4 – barcode scanner, weight tracking, charts
