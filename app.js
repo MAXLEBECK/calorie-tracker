@@ -1,8 +1,9 @@
-import * as db from './db.js';
+// Bump ?v= here, in index.html, and VERSION in sw.js on every release.
+import * as db from './db.js?v=3';
 import {
   MACRO_KEYS, dateKey, parseKey, addDays, entryTotals, sumTotals,
   goalsFor, summarizeDays, currentStreak, bestStreak,
-} from './stats.js';
+} from './stats.js?v=3';
 
 const MACROS = [
   { key: 'calories', label: 'Calories', unit: '' },

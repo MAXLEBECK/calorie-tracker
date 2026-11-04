@@ -1,5 +1,5 @@
 // Offline support: cache the app shell. Bump VERSION whenever app files change.
-const VERSION = 'fuel-v2';
+const VERSION = 'fuel-v3';
 const SHELL = [
   './',
   './index.html',
@@ -26,10 +26,12 @@ self.addEventListener('activate', e => {
 });
 
 // Network first (so updates show up), fall back to cache when offline.
+// cache: 'no-cache' makes the phone re-check every file with the server, so it
+// never mixes a new page with old cached code.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(new Request(e.request.url, { cache: 'no-cache' }))
       .then(res => {
         const copy = res.clone();
         caches.open(VERSION).then(c => c.put(e.request, copy));
