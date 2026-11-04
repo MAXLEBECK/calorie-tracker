@@ -1,0 +1,35 @@
+name: Update dining menus
+
+on:
+  schedule:
+    - cron: "0 9 * * *"   # ~4-5am Eastern
+    - cron: "0 15 * * *"  # ~10-11am Eastern, picks up same-day menu edits
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: menus
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch menus
+        run: python3 scripts/fetch_menus.py
+
+      - name: Commit changes
+        run: |
+          git add -A data/menus
+          if git diff --cached --quiet; then
+            echo "No menu changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update dining menus"
+          git push
